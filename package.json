@@ -1,0 +1,8 @@
+{
+  "name": "auri-netlify-proxy",
+  "version": "1.0.0",
+  "description": "Proxy function for Auri",
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  }
+}

@@ -46,7 +46,6 @@
             --padding-sm: 8px;
             --padding-md: 16px;
             --padding-lg: 24px;
-
             /* Inicialmente define as variáveis do tema ESCURO como padrão */
             --bg-color: var(--bg-color-dark);
             --text-color: var(--text-color-dark);
@@ -1189,8 +1188,9 @@
 
     <script>
         // --- Constantes e Variáveis Globais --- //
+        // !!! MODIFICAÇÃO 1: Remover chave de API do OpenRouter daqui !!!
         const API_KEYS = {
-            openrouter: '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', // Chave de teste
+            // openrouter: 'SUA_CHAVE_API_ANTIGA_FOI_REMOVIDA_DAQUI', // Removido! Backend cuida disso agora.
             google_search: 'YOUR_GOOGLE_SEARCH_API_KEY', // Substitua se for usar
             google_search_cx: 'YOUR_GOOGLE_SEARCH_CX' // Substitua se for usar
         };
@@ -1481,7 +1481,7 @@
             let html = text;
             // 1. Processar blocos de código primeiro para evitar processar markdown dentro deles
             const codeBlocks = [];
-            html = html.replace(/``````/gs, (match, lang, code) => {
+            html = html.replace(/``````/gs, (match, lang, code) => { // Regex ligeiramente ajustada
                 const index = codeBlocks.length;
                 const escapedCode = escapeHtml(code.trim()); // Escapa HTML dentro do código
                 codeBlocks.push(`<pre><code class="language-${lang || ''}">${escapedCode}</code></pre>`);
@@ -1603,10 +1603,13 @@
             }).filter(msg => msg !== null);
             incrementMessageCount(); currentRequestController = new AbortController();
             try {
+                // !!! MODIFICAÇÃO 4: Chama a função `callApi` (que agora usa o proxy) !!!
                 const aiResponseContent = await callApi(apiMessages, state.webSearchActive, currentRequestController.signal);
                 const aiMessage = { role: 'ai', content: aiResponseContent }; currentChat.messages.push(aiMessage); appendMessage(aiMessage);
             } catch (error) {
-                console.error("Erro na chamada da API:", error); let errorMessageContent = error.name === 'AbortError' ? t.generationStopped : t.modalApiError.replace('{error}', error.message);
+                // O tratamento de erro já está aqui, apenas garantindo que ele exiba o erro do proxy
+                console.error("Erro na chamada da API (via proxy ou direto):", error);
+                let errorMessageContent = error.name === 'AbortError' ? t.generationStopped : t.modalApiError.replace('{error}', error.message);
                 const errorMessageObj = { role: 'ai', content: errorMessageContent }; currentChat.messages.push(errorMessageObj); appendMessage(errorMessageObj);
             } finally { state.isAiResponding = false; loadingOverlay.classList.remove('visible'); updateInputButtonsState(); saveState(); scrollToBottom(); messageInput.focus(); currentRequestController = null; }
         };
@@ -1625,9 +1628,13 @@
             }).filter(msg => msg !== null);
             state.isAiResponding = true; loadingOverlay.classList.add('visible'); updateInputButtonsState(); scrollToBottom(); incrementMessageCount(); currentRequestController = new AbortController();
             try {
-                const aiResponseContent = await callApi(apiMessages, false, currentRequestController.signal); const newAiMessage = { role: 'ai', content: aiResponseContent }; currentChat.messages.push(newAiMessage); appendMessage(newAiMessage);
+                // !!! MODIFICAÇÃO 4 (Regenerate): Chama a função `callApi` (que agora usa o proxy) !!!
+                // Passa 'false' para useWebSearch na regeneração, como antes
+                const aiResponseContent = await callApi(apiMessages, false, currentRequestController.signal);
+                const newAiMessage = { role: 'ai', content: aiResponseContent }; currentChat.messages.push(newAiMessage); appendMessage(newAiMessage);
             } catch (error) {
-                console.error("Erro ao regenerar:", error); let errorMessageContent = error.name === 'AbortError' ? t.generationStopped : t.modalApiRegenError.replace('{error}', error.message);
+                console.error("Erro ao regenerar (via proxy ou direto):", error);
+                let errorMessageContent = error.name === 'AbortError' ? t.generationStopped : t.modalApiRegenError.replace('{error}', error.message);
                 if (error.name !== 'AbortError') { currentChat.messages.push(originalAiMessage); appendMessage(originalAiMessage); console.error("Regeneração falhou, resposta original restaurada."); } // Só restaura se não foi abortado
                 else { const errorMessageObj = { role: 'ai', content: errorMessageContent }; currentChat.messages.push(errorMessageObj); appendMessage(errorMessageObj); } // Adiciona msg de erro se foi abortado
             } finally { state.isAiResponding = false; loadingOverlay.classList.remove('visible'); updateInputButtonsState(); saveState(); scrollToBottom(); messageInput.focus(); currentRequestController = null; }
@@ -1643,25 +1650,104 @@
         };
         const removeAttachment = () => { state.attachedImage = null; attachmentPreview.src = '#'; attachmentFilename.textContent = ''; attachmentPreviewContainer.style.display = 'none'; updateInputButtonsState(); };
 
-        // --- Funções de Chamada de API (Mantido igual) --- //
+        // --- Funções de Chamada de API (MODIFICADA PARA USAR PROXY) --- //
         const callApi = async (formattedMessages, useWebSearch, signal) => {
-            const modelConfig = MODEL_CONFIG; const modelId = MODEL_ID; let endpoint = ''; let headers = { 'Content-Type': 'application/json' }; let body = {}; let systemContent = state.settings.customInstructions || ''; if (state.settings.userName) systemContent += (systemContent ? '\n' : '') + `O nome do usuário é ${state.settings.userName}.`; if (state.settings.aiLang !== 'auto') systemContent += (systemContent ? '\n' : '') + `Responda no idioma: ${state.settings.aiLang}.`;
-            const finalApiMessages = []; if (systemContent.trim()) { finalApiMessages.push({ role: 'system', content: systemContent.trim() }); } finalApiMessages.push(...formattedMessages);
-            endpoint = 'https://openrouter.ai/api/v1/chat/completions'; headers['Authorization'] = `Bearer ${API_KEYS.openrouter}`; headers['HTTP-Referer'] = `${location.origin}`; headers['X-Title'] = `Auri Chatbot`;
-            let effectiveModelId = modelId; if (useWebSearch && modelConfig.supportsWebSearch && modelConfig.webSearchType === 'suffix' && !effectiveModelId.includes(':online')) { effectiveModelId += ':online'; console.log(`Usando modelo com busca web: ${effectiveModelId}`); }
-            body = { model: effectiveModelId, messages: finalApiMessages };
-            console.log("Enviando para API:", JSON.stringify(body, null, 2));
-            const response = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body), signal });
-            if (!response.ok) { const errorData = await response.json().catch(() => ({ message: response.statusText })); console.error("Erro da API:", errorData); const errorMessage = errorData?.error?.message || errorData?.message || `Erro ${response.status}`; throw new Error(`Erro API: ${errorMessage}`); }
-            const data = await response.json(); console.log("Resposta da API:", data);
-            if (data.choices && data.choices[0] && data.choices[0].message) { return data.choices[0].message.content || ''; } else { console.warn("Formato de resposta inesperado da API:", data); throw new Error('Resposta da API em formato inválido.'); }
+            const modelConfig = MODEL_CONFIG;
+            const modelId = MODEL_ID;
+
+            // !!! MODIFICAÇÃO 2: Endpoint aponta para a função Netlify !!!
+            let endpoint = '/.netlify/functions/openrouter-proxy'; // Caminho relativo para a função
+
+            // !!! MODIFICAÇÃO 3: Headers simplificados - SEM Autenticação aqui! !!!
+            let headers = {
+                'Content-Type': 'application/json'
+            };
+
+            let body = {}; // Corpo será definido abaixo
+
+            // Lógica para prompt de sistema (permanece igual)
+            let systemContent = state.settings.customInstructions || '';
+            if (state.settings.userName) systemContent += (systemContent ? '\n' : '') + `O nome do usuário é ${state.settings.userName}.`;
+            if (state.settings.aiLang !== 'auto') systemContent += (systemContent ? '\n' : '') + `Responda no idioma: ${state.settings.aiLang}.`;
+
+            const finalApiMessages = [];
+            if (systemContent.trim()) {
+                finalApiMessages.push({ role: 'system', content: systemContent.trim() });
+            }
+            finalApiMessages.push(...formattedMessages);
+
+            // Lógica para web search (permanece igual, o sufixo :online será enviado no corpo para o proxy)
+            let effectiveModelId = modelId;
+            if (useWebSearch && modelConfig.supportsWebSearch && modelConfig.webSearchType === 'suffix' && !effectiveModelId.includes(':online')) {
+                effectiveModelId += ':online';
+                console.log(`Proxy Frontend: Usando modelo com busca web: ${effectiveModelId}`);
+            }
+
+            // Corpo da requisição para a função proxy (contém o modelo e as mensagens)
+            body = {
+                model: effectiveModelId,
+                messages: finalApiMessages
+                // O proxy adicionará a chave de API
+            };
+
+            console.log("Proxy Frontend: Enviando para função Netlify:", JSON.stringify(body, null, 2));
+
+            try {
+                // !!! Fetch para o endpoint da função proxy, com headers simplificados !!!
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: headers, // Headers sem autenticação
+                    body: JSON.stringify(body),
+                    signal // Para permitir abortar a requisição
+                });
+
+                // Verifica a resposta da SUA FUNÇÃO PROXY
+                if (!response.ok) {
+                    // Tenta ler o erro retornado pela sua função proxy
+                    const errorData = await response.json().catch(() => ({
+                        message: `Erro ${response.status} ao chamar o proxy Netlify.`
+                    }));
+                    console.error("Proxy Frontend: Erro retornado pelo Proxy Netlify:", errorData);
+                    // Tenta extrair uma mensagem de erro significativa do proxy ou do OpenRouter (via proxy)
+                    const errorMessage = errorData?.error?.message || errorData?.details || errorData?.message || `Erro ${response.status}`;
+                    // Cria um erro mais específico
+                    throw new Error(`Erro Proxy/API: ${errorMessage}`);
+                }
+
+                // Lê os dados retornados pela SUA FUNÇÃO PROXY (que são os dados do OpenRouter)
+                const data = await response.json();
+                console.log("Proxy Frontend: Resposta recebida (via Proxy Netlify):", data);
+
+                // Lógica para extrair a resposta da IA (vindo do OpenRouter via proxy)
+                if (data.choices && data.choices[0] && data.choices[0].message) {
+                    return data.choices[0].message.content || '';
+                } else if (data.error) { // Se o OpenRouter retornou um erro que o proxy repassou
+                     console.error("Proxy Frontend: Erro da API OpenRouter (via proxy):", data.error);
+                     throw new Error(`Erro API (via Proxy): ${data.error.message || 'Erro desconhecido'}`);
+                } else {
+                    console.warn("Proxy Frontend: Formato de resposta inesperado da API (via proxy):", data);
+                    throw new Error('Resposta da API (via Proxy) em formato inválido.');
+                }
+            } catch (error) {
+                // Captura erros de rede ao chamar a função ou erros lançados acima
+                 console.error("Proxy Frontend: Erro ao chamar a função proxy ou processar resposta:", error);
+                 // Mantém a mensagem de erro original se já for formatada, senão formata
+                 // Adiciona verificação para AbortError
+                 if (error.name === 'AbortError') {
+                    throw error; // Re-lança o AbortError para ser tratado no finally
+                 }
+                 // Usa a mensagem existente se já for um erro formatado, senão cria nova
+                 const finalErrorMessage = error.message.startsWith('Erro Proxy/API:') || error.message.startsWith('Erro API (via Proxy):') ? error.message : `Erro na comunicação: ${error.message}`;
+                 throw new Error(finalErrorMessage);
+            }
         };
+
 
         // --- Funções de Conteúdo Estático (Termos, Privacidade - Mantido igual) --- //
         const formatPolicyText = (text) => text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
         const getTermsOfUseContent = () => {
             const rawText = `**Termos de Uso - Auri Chatbot**\n\n*Última atualização: ${new Date().toLocaleDateString('pt-BR')}*
-         
+
 Bem-vindo ao Auri!
 Estes Termos de Uso ("Termos") regem seu acesso e uso do chatbot Auri ("Serviço"). **AO USAR O SERVIÇO, VOCÊ CONCORDA EXPRESSAMENTE COM ESTES TERMOS E RECONHECE QUE O SERVIÇO É FORNECIDO "COMO ESTÁ" ("AS IS"), SEM GARANTIAS DE QUALQUER TIPO.** Se você não concorda com estes Termos, não use o Serviço.
 
@@ -1677,8 +1763,8 @@ O funcionamento do Auri depende **INTEGRALMENTE** do acesso a APIs de modelos de
 **4. Privacidade e Dados Locais:**
 O Auri foi construído com a privacidade em mente. Nenhum dado de conversa ou configuração pessoal é enviado para servidores do Auri (pois não existem). Todos os dados são armazenados **localmente no seu navegador**. **A SEGURANÇA DESSES DADOS DEPENDE DA SEGURANÇA DO SEU PRÓPRIO DISPOSITIVO E NAVEGADOR.** Se você limpar os dados do seu navegador ou usar a função de limpeza no Auri, **TODOS OS DADOS SERÃO PERMANENTEMENTE PERDIDOS, SEM POSSIBILIDADE DE RECUPERAÇÃO.** As interações enviadas às APIs de terceiros estão sujeitas às políticas de dados desses provedores.
 
-**5. Chaves de API Expostas (Fins Educacionais/Teste):**
-**ATENÇÃO:** As chaves de API para serviços externos (OpenRouter) estão **EXPOSTAS DIRETAMENTE NO CÓDIGO FRONTEND**. Isso é feito **APENAS PARA FINS EDUCACIONAIS E DE TESTE**, ciente dos riscos. **NÃO USE ESTE CÓDIGO EM PRODUÇÃO COM ESTAS CHAVES.** O desenvolvedor não se responsabiliza por qualquer uso indevido ou custos gerados por estas chaves.
+**5. Chaves de API e Segurança (Atualização Pós-Proxy):**
+**ATENÇÃO:** A versão anterior deste aplicativo expunha chaves de API no código frontend. Esta versão foi **MODIFICADA** para usar um **backend proxy (Netlify Function)** para proteger a chave da API do OpenRouter. A chave não está mais no código frontend. No entanto, lembre-se que a segurança depende da configuração correta do proxy e das variáveis de ambiente no Netlify.
 
 **6. ISENÇÃO TOTAL DE GARANTIAS:**
 **O AURI É FORNECIDO "COMO ESTÁ" E "CONFORME DISPONÍVEL", SEM GARANTIAS DE QUALQUER TIPO, SEJAM EXPRESSAS, IMPLÍCITAS OU ESTATUTÁRIAS.** ISTO INCLUI, MAS NÃO SE LIMITA A, GARANTIAS DE COMERCIALIZAÇÃO, ADEQUAÇÃO A UM FIM ESPECÍFICO, NÃO VIOLAÇÃO, PRECISÃO, CONFIABILIDADE, OU QUE O SERVIÇO SERÁ ININTERRUPTO, SEGURO, LIVRE DE ERROS, VÍRUS OU OUTROS COMPONENTES PREJUDICIAIS.
@@ -1696,8 +1782,9 @@ Estes Termos serão regidos pelas leis do Brasil.
 Este é um projeto pessoal sem suporte formal.`; return formatPolicyText(rawText.trim());
         };
         const getPrivacyPolicyContent = () => {
-            const rawText = `**Política de Privacidade - Auri Chatbot**\n\n*Última atualização: ${new Date().toLocaleDateString('pt-BR')}
-*Esta Política de Privacidade descreve como o chatbot Auri lida com suas informações.
+            const rawText = `**Política de Privacidade - Auri Chatbot**\n\n*Última atualização: ${new Date().toLocaleDateString('pt-BR')}*
+
+Esta Política de Privacidade descreve como o chatbot Auri lida com suas informações.
 
 **1. Informações que Coletamos:**
 O Auri **NÃO COLETA** informações de identificação pessoal. Não exigimos nome, e-mail, ou qualquer forma de cadastro.
@@ -1716,11 +1803,10 @@ Todas as informações mencionadas acima (histórico, configurações, estado) s
 
 **4. Compartilhamento de Informações:**
 Nós **NÃO COMPARTILHAMOS** seus dados armazenados localmente com terceiros.
-No entanto, para que o Auri funcione, as mensagens que você envia (e o histórico relevante da conversa atual, juntamente com instruções personalizadas) são enviadas para as APIs de modelos de IA de terceiros (OpenRouter). O tratamento dessas informações por esses provedores terceirizados é regido por suas próprias políticas de privacidade. Recomendamos que você revise as políticas de privacidade dos provedores de API que utiliza.
+No entanto, para que o Auri funcione, as mensagens que você envia (e o histórico relevante da conversa atual, juntamente com instruções personalizadas) são enviadas para um **backend proxy (Netlify Function)** que, por sua vez, as encaminha para as APIs de modelos de IA de terceiros (OpenRouter). O tratamento dessas informações por esses provedores terceirizados (OpenRouter) é regido por suas próprias políticas de privacidade. Recomendamos que você revise as políticas de privacidade do OpenRouter. O proxy Netlify em si não armazena seus dados de conversa.
 
 **5. Segurança:**
-Embora armazenemos os dados apenas localmente no seu dispositivo, a segurança desses dados depende da segurança do seu próprio navegador e dispositivo. As chaves de API para serviços externos (OpenRouter) estão atualmente incorporadas no código frontend; isso é feito para fins de demonstração e facilidade de uso neste contexto experimental, mas **não é uma prática segura para produção**. Qualquer pessoa com acesso ao código-fonte pode ver essas chaves.
-As comunicações com as APIs externas (OpenRouter) geralmente ocorrem sobre HTTPS, mas a segurança ponta-a-ponta depende das práticas desses provedores.
+Embora armazenemos os dados apenas localmente no seu dispositivo, a segurança desses dados depende da segurança do seu próprio navegador e dispositivo. As chaves de API para serviços externos (OpenRouter) **NÃO** estão mais no código frontend; elas são gerenciadas pelo backend proxy. As comunicações entre seu navegador e o proxy Netlify, e entre o proxy e o OpenRouter, geralmente ocorrem sobre HTTPS, mas a segurança ponta-a-ponta depende das práticas do Netlify e do OpenRouter.
 
 **6. Seus Direitos e Controle:**
 Você tem controle total sobre os dados armazenados localmente. Você pode:

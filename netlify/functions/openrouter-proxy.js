@@ -31,7 +31,7 @@ exports.handler = async (event) => {
             body: JSON.stringify(data),
             // Linhas importantes para o navegador deixar o Auri receber a resposta:
             headers: {
-                'Access-Control-Allow-Origin': '*', // Permite que seu site acesse (idealmente troque '*' pela sua URL netlify depois)
+                'Access-Control-Allow-Origin': 'https://astonishing-alpaca-9b0654.netlify.app', // Permite que seu site acesse (idealmente troque '*' pela sua URL netlify depois)
                 'Access-Control-Allow-Headers': 'Content-Type',
                 'Access-Control-Allow-Methods': 'POST, OPTIONS'
             }
@@ -47,7 +47,7 @@ exports.handler.options = async (event) => {
   return {
     statusCode: 204,
     headers: {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': 'https://astonishing-alpaca-9b0654.netlify.app',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Allow': 'POST, OPTIONS'
